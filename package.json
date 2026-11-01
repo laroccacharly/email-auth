@@ -1,0 +1,25 @@
+{
+  "name": "email-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stateless email sign-in for Effect HttpApi servers",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "lint": "oxlint . && ts-lint-effect"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "effect": "4.1.1",
+    "oxlint": "^1.90.0",
+    "oxlint-tsgolint": "^7.0.2005",
+    "ts-lint": "github:laroccacharly/ts-lint#v0.6.0",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "effect": "^4.1.1"
+  }
+}
