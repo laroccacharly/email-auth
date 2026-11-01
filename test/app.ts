@@ -23,6 +23,34 @@ const meHandlers = HttpApiBuilder.group(TestApi, "me", (handlers) =>
 
 export const baseUrl = "https://notes.example"
 
+interface AppOptions {
+  readonly baseUrl: string
+  readonly isKnownEmail: (email: string) => boolean
+  readonly send: (mail: Mail) => Effect.Effect<void, MailerError>
+  /** A test clock, or `Layer.empty` for the real one. */
+  readonly clock: Layer.Layer<never>
+}
+
+/** The test app's routes as a fetch handler: the `auth` endpoints and `/api/me`, behind the `Stamp` middleware. */
+export const makeAppHandler = (options: AppOptions) => {
+  const knownEmail = Layer.succeed(KnownEmail, { check: (email) => Effect.succeed(options.isKnownEmail(email)) })
+  const mailer = Layer.succeed(Mailer, { send: options.send })
+  const emailAuth = EmailAuth.layer(TestApi, {
+    secret: Config.succeed(Redacted.make("a-test-secret-that-is-at-least-32-bytes-long")),
+    baseUrl: Config.succeed(options.baseUrl),
+    appName: "Notes",
+  }).pipe(Layer.provide([knownEmail, mailer, stamp]))
+
+  const routes = HttpApiBuilder.layer(TestApi).pipe(
+    Layer.provide(meHandlers),
+    Layer.provide(emailAuth),
+    Layer.provide(stamp),
+    Layer.provide(HttpServer.layerServices),
+    Layer.provide(options.clock),
+  )
+  return HttpRouter.toWebHandler(routes, { disableLogger: true })
+}
+
 interface TestAppOptions {
   readonly knownEmails: ReadonlyArray<string>
   readonly mailerFails?: boolean
@@ -32,30 +60,15 @@ interface TestAppOptions {
 export const makeTestApp = async (options: TestAppOptions) => {
   const sent: Array<Mail> = []
   const clock = await Effect.runPromise(Effect.scoped(TestClock.make()))
-
-  const knownEmail = Layer.succeed(KnownEmail, {
-    check: (email) => Effect.succeed(options.knownEmails.includes(email)),
-  })
-  const mailer = Layer.succeed(Mailer, {
+  const { handler, dispose } = makeAppHandler({
+    baseUrl,
+    clock: Layer.succeed(Clock.Clock, clock),
+    isKnownEmail: (email) => options.knownEmails.includes(email),
     send: (mail) => {
       if (options.mailerFails) return Effect.fail(new MailerError({ cause: "provider down" }))
       return Effect.sync(() => void sent.push(mail))
     },
   })
-  const emailAuth = EmailAuth.layer(TestApi, {
-    secret: Config.succeed(Redacted.make("a-test-secret-that-is-at-least-32-bytes-long")),
-    baseUrl: Config.succeed(baseUrl),
-    appName: "Notes",
-  }).pipe(Layer.provide([knownEmail, mailer, stamp]))
-
-  const routes = HttpApiBuilder.layer(TestApi).pipe(
-    Layer.provide(meHandlers),
-    Layer.provide(emailAuth),
-    Layer.provide(stamp),
-    Layer.provide(HttpServer.layerServices),
-    Layer.provide(Layer.succeed(Clock.Clock, clock)),
-  )
-  const { handler, dispose } = HttpRouter.toWebHandler(routes, { disableLogger: true })
 
   const request = (path: string, init?: RequestInit) => handler(new Request(`${baseUrl}${path}`, init))
   const advance = (duration: Duration.Input) => Effect.runPromise(clock.adjust(duration))

@@ -8,7 +8,8 @@ only state is one secret.
 
 The library knows nothing about the app's data. The app tells it which
 emails may sign in and how to send mail; the library signs, verifies and
-serves the HTTP endpoints.
+serves the HTTP endpoints, and `email-auth/ui` gives a Foldkit app the
+sign-in form and session state that go with them.
 
 ### 1. The flow
 
@@ -123,7 +124,7 @@ the rest is the app.
 #### Step 1: install
 
 ```sh
-bun add github:laroccacharly/email-auth#v0.1.1
+bun add github:laroccacharly/email-auth#v0.2.0
 ```
 
 `effect` must already be in the app; the library uses the app's copy.
@@ -241,34 +242,82 @@ Worker secret:
 openssl rand -base64 32
 ```
 
-#### Step 5: sign in from the browser
+#### Step 5: sign in from the browser, with `email-auth/ui`
 
-The UI is served from the same origin as the API, so the browser sends
-the cookie by itself. The UI never reads or stores a token:
+`email-auth/ui` is the browser half: a [Foldkit](https://foldkit.dev)
+Submodel the app embeds. It finds out who is signed in, shows the sign-in
+form and the "check your inbox" text, sends the link back to the page it
+was asked on, shows the notice for an expired link, and signs out. It
+tells the app what happened through two OutMessages, `SignedIn { email }`
+and `SignedOut`. The UI never reads or stores a token: it is served from
+the same origin as the API, so the browser sends the cookie by itself.
+
+The app embeds it in three places:
 
 ```ts
-// Am I signed in?
-const res = await fetch("/auth/session")
-if (res.status === 401) showSignInForm()
-else showApp((await res.json()).email)
+// src/ui/main.ts
+import * as SignIn from "email-auth/ui"
 
-// The sign-in form: ask for a link, then tell the user to check their inbox.
-await fetch("/auth/login", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ email, redirect: location.pathname }),
+const Model = Schema.Struct({ signIn: SignIn.Model, notes: Schema.Option(Schema.Array(Note)) })
+
+const Message = defineMessageUnion({
+  ChangedUrl: { url: Url },
+  GotSignInMessage: { message: SignIn.Message },
+  // …the app's own messages
 })
-showMessage("Check your inbox for a sign-in link.")
 
-// Back from the link with `?auth=expired`: the link was too old.
-if (new URLSearchParams(location.search).get("auth") === "expired") showMessage("That link expired. Ask for a new one.")
+const toGotSignInMessage = (message: SignIn.Message) => Message.GotSignInMessage({ message })
 
-// Sign out.
-await fetch("/auth/logout", { method: "POST" })
+// 1. init: the Submodel's init asks `/auth/session` who is signed in.
+const init = (url: Url) =>
+  Update.foldChildInit(SignIn.init(url), {
+    toParentModel: (signIn) => ({ signIn, notes: Option.none() }),
+    toParentMessage: toGotSignInMessage,
+  })
+
+// 2. update: load the user's data when they sign in, drop it when they sign out.
+const foldSignIn = Update.foldChild({
+  update: SignIn.update,
+  read: (model: Model) => Option.some(model.signIn),
+  write: (model, signIn) => modifyFields(model, { signIn: () => signIn }),
+  toParentMessage: toGotSignInMessage,
+  foldOutMessage: SignIn.OutMessage.match<Update.Step<Model, Message>>({
+    SignedIn: () => (model) => ({ model, commands: [FetchNotes()] }),
+    SignedOut: () => (model) => ({ model: modifyFields(model, { notes: () => Option.none() }) }),
+  }),
+})
+
+const update = (model: Model, message: Message) =>
+  Message.match(message, {
+    GotSignInMessage: ({ message }) => foldSignIn(model, message),
+    // Optional: a link asked for after moving to another page comes back to that page.
+    ChangedUrl: ({ url }) => ({ model: modifyFields(model, { signIn: (signIn) => SignIn.reflectUrl(signIn, url) }) }),
+    // …
+  })
+
+// 3. view: the form where the page goes, the account (email, Sign out) in the header.
+h.submodel({ slotId: "sign-in", view: SignIn.formView, model: model.signIn, viewInputs: { intro: "Use the email you signed up with." }, toParentMessage: toGotSignInMessage })
+h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, viewInputs: {}, toParentMessage: toGotSignInMessage })
 ```
 
-An Effect UI can call the same endpoints through
-`HttpApiClient.make(AppApi)` instead of `fetch`.
+- `formView` renders only while signed out, `accountView` only while
+  signed in, and neither while the session is still being fetched. The
+  app reads the state with `SignIn.signedInEmail(model.signIn)`, or
+  `model.signIn.status` (`CheckingSession`, `SignedOut`, `SignedIn`).
+- When one of the app's own calls gets a `401`, the session is gone: the
+  app sends `SignIn.Message.LostSession()` through `foldSignIn`, which
+  shows the form and emits `SignedOut` once.
+- Failures (server unreachable, `429` from the app's rate limit) are
+  shown as a dismissable notice (`role="alert"`); the "check your inbox"
+  text is a `role="status"`.
+- Styling: every part has a Tailwind class by default
+  (`SignIn.defaultClasses`); `viewInputs.classes` overrides any of them.
+  A Tailwind app adds `@source "../node_modules/email-auth/src/ui";` to
+  its CSS so the defaults are generated. Without Tailwind, the views are
+  plain, accessible HTML.
+- The commands call the `auth` endpoints through an `HttpApiClient` of
+  `EmailAuthGroup` alone, on the page's origin, so the app's client
+  middleware doesn't run on them.
 
 #### What stays with the app
 
@@ -281,17 +330,22 @@ An Effect UI can call the same endpoints through
 ### 6. Package
 
 - Repo `github:laroccacharly/email-auth`, used as
-  `bun add github:laroccacharly/email-auth#v0.1.1`.
-- `effect` as a peer dependency (`^4.1.1`, the first with `effect/jose`),
-  pinned in dev dependencies.
-  No other runtime dependency.
+  `bun add github:laroccacharly/email-auth#v0.2.0`.
+- `effect` (`^4.1.1`, the first with `effect/jose`) and `foldkit`
+  (`^0.170.0`, for `email-auth/ui`) as peer dependencies, so the app's
+  single copy of each is used, pinned in dev dependencies. The server
+  half (`email-auth`) never imports Foldkit. No other runtime dependency.
 - Source is TypeScript, imported directly (Bun and the Workers bundler
   both read `.ts`), so there's no build step.
-- `bun run lint` (oxlint with type checking), `bun test`.
+- `bun run lint` (oxlint with type checking), `bun test`, `bun run test:ui`.
 
 ### 7. Testing
 
-Through the public API only, in memory, well under 20 seconds:
+Through the public API only, all of it in a few seconds. The library owns
+everything about signing in, so an app only tests its own rules (who may
+sign in, what an email sees) and one real sign-in for its wiring.
+
+**The server**, in memory (`bun test`, `test/email-auth.test.ts`):
 
 - Build a test `HttpApi` with `EmailAuthGroup` and one protected group, serve
   it with `HttpRouter.toWebHandler`, and drive it with `fetch`-style
@@ -308,6 +362,32 @@ or link-as-session token gets `401`; an absolute `redirect` gets `400`;
 logout clears the cookie; the cookie has `HttpOnly`, `Secure`,
 `SameSite=Lax`.
 
+**The UI**, without a browser (`bun test`, `test/ui.test.ts`): Foldkit
+Scene tests render both views into a happy-dom DOM, type and click
+through accessible locators, check the commands sent and resolve them
+with their answers. Story tests cover the messages no click produces:
+`/auth/session`'s answer and the app's `LostSession`.
+
+Cases: nothing shows until the session is known; a session shows the
+email and Sign out, and emits `SignedIn`; none shows the form, and emits
+`SignedOut` once however many `401`s follow; the expired notice shows
+and dismisses; a link asks for the trimmed email and the page it was
+asked on (without `auth=expired`, or the page `reflectUrl` moved to);
+an empty email sends nothing; a failed send or sign-out shows the error.
+
+**End to end** (`bun run test:ui`, Playwright, `test/browser/`):
+`test/browser/server.ts` serves the test app's endpoints with the real
+clock, a demo Foldkit app embedding `email-auth/ui` (with a protected
+call to `/api/me`) on every other path, and the mail sent at
+`/test/mail?to=`, which the tests read like an inbox.
+
+Cases: the emailed link signs in and opens the protected route, with a
+cookie page scripts can't read; the session survives a reload; a link
+asked for on a deep page comes back to it; an email that may not sign in
+sees the same answer and gets no mail; a bad link shows the form with a
+notice, and a link asked there comes back without it; signing out shows
+the form, even after a reload.
+
 ### 8. In bench
 
 For reference, how bench would use it (bench.md owns the details):
@@ -318,6 +398,9 @@ For reference, how bench would use it (bench.md owns the details):
 - The UI moves onto the Worker as static assets, and the proxy goes. The
   UI's read endpoints use `Session` and show the jobs of every key whose
   `email` is the signed-in one. The CLI keeps using the bearer key.
+- The UI embeds `email-auth/ui` instead of its own sign-in state, form
+  and sign-out button, and drops the sign-in tests this file's section 7
+  now covers.
 - "Lost my key" then means: sign in by email, and from the UI create a new
   key for that email (or replace the old key's hash, keeping its `id` and
   its jobs).
