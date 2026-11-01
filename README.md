@@ -14,5 +14,5 @@ a Foldkit app.
 ## Installation
 
 ```sh
-bun add github:laroccacharly/email-auth#v0.2.0
+bun add github:laroccacharly/email-auth#v0.2.1
 ```

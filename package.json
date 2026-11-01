@@ -1,6 +1,6 @@
 {
   "name": "email-auth",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Stateless email sign-in for Effect HttpApi servers, with a Foldkit sign-in UI",
@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@effect/platform-browser": "4.1.1",
+    "@foldkit/oxlint-plugin": "0.15.3",
     "@happy-dom/global-registrator": "^21.0.4",
     "@playwright/test": "1.64.1",
     "@types/bun": "^1.4.4",

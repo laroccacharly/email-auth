@@ -1,8 +1,9 @@
 import { defineConfig } from "oxlint"
 import tsLint from "ts-lint/config"
+import foldkit from "./oxlint.foldkit.ts"
 
 export default defineConfig({
-  extends: [tsLint],
+  extends: [tsLint, foldkit],
   options: {
     typeAware: true,
     typeCheck: true,

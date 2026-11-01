@@ -124,7 +124,7 @@ the rest is the app.
 #### Step 1: install
 
 ```sh
-bun add github:laroccacharly/email-auth#v0.2.0
+bun add github:laroccacharly/email-auth#v0.2.1
 ```
 
 `effect` must already be in the app; the library uses the app's copy.
@@ -263,6 +263,8 @@ const Model = Schema.Struct({ signIn: SignIn.Model, notes: Schema.Option(Schema.
 const Message = defineMessageUnion({
   ChangedUrl: { url: Url },
   GotSignInMessage: { message: SignIn.Message },
+  // One of the app's own calls answered 401.
+  LostSession: {},
   // …the app's own messages
 })
 
@@ -276,20 +278,25 @@ const init = (url: Url) =>
   })
 
 // 2. update: load the user's data when they sign in, drop it when they sign out.
-const foldSignIn = Update.foldChild({
-  update: SignIn.update,
+const signInFold = {
   read: (model: Model) => Option.some(model.signIn),
-  write: (model, signIn) => modifyFields(model, { signIn: () => signIn }),
+  write: (model: Model, signIn: SignIn.Model) => modifyFields(model, { signIn: () => signIn }),
   toParentMessage: toGotSignInMessage,
   foldOutMessage: SignIn.OutMessage.match<Update.Step<Model, Message>>({
     SignedIn: () => (model) => ({ model, commands: [FetchNotes()] }),
     SignedOut: () => (model) => ({ model: modifyFields(model, { notes: () => Option.none() }) }),
   }),
-})
+}
+
+const foldSignIn = Update.foldChild({ update: SignIn.update, ...signInFold })
+
+// A 401 on one of the app's calls: the session is gone.
+const foldLoseSession = Update.foldChildStep({ update: SignIn.loseSession, ...signInFold })
 
 const update = (model: Model, message: Message) =>
   Message.match(message, {
     GotSignInMessage: ({ message }) => foldSignIn(model, message),
+    LostSession: () => foldLoseSession(model),
     // Optional: a link asked for after moving to another page comes back to that page.
     ChangedUrl: ({ url }) => ({ model: modifyFields(model, { signIn: (signIn) => SignIn.reflectUrl(signIn, url) }) }),
     // …
@@ -305,8 +312,11 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
   app reads the state with `SignIn.signedInEmail(model.signIn)`, or
   `model.signIn.status` (`CheckingSession`, `SignedOut`, `SignedIn`).
 - When one of the app's own calls gets a `401`, the session is gone: the
-  app sends `SignIn.Message.LostSession()` through `foldSignIn`, which
-  shows the form and emits `SignedOut` once.
+  call answers the app's own `LostSession` message, whose update folds
+  `SignIn.loseSession` with `Update.foldChildStep`. That shows the form
+  and emits `SignedOut` once. The app never builds a `SignIn.Message`
+  itself, as Foldkit's `no-child-message-construction-in-root` lint
+  rule asks.
 - Failures (server unreachable, `429` from the app's rate limit) are
   shown as a dismissable notice (`role="alert"`); the "check your inbox"
   text is a `role="status"`.
@@ -330,14 +340,16 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
 ### 6. Package
 
 - Repo `github:laroccacharly/email-auth`, used as
-  `bun add github:laroccacharly/email-auth#v0.2.0`.
+  `bun add github:laroccacharly/email-auth#v0.2.1`.
 - `effect` (`^4.1.1`, the first with `effect/jose`) and `foldkit`
   (`^0.170.0`, for `email-auth/ui`) as peer dependencies, so the app's
   single copy of each is used, pinned in dev dependencies. The server
   half (`email-auth`) never imports Foldkit. No other runtime dependency.
 - Source is TypeScript, imported directly (Bun and the Workers bundler
   both read `.ts`), so there's no build step.
-- `bun run lint` (oxlint with type checking), `bun test`, `bun run test:ui`.
+- `bun run lint` (oxlint with type checking, and Foldkit's recommended
+  rules on `src/ui` and the demo app, so an app with those rules can
+  embed it as the docs show), `bun test`, `bun run test:ui`.
 
 ### 7. Testing
 
@@ -366,7 +378,7 @@ logout clears the cookie; the cookie has `HttpOnly`, `Secure`,
 Scene tests render both views into a happy-dom DOM, type and click
 through accessible locators, check the commands sent and resolve them
 with their answers. Story tests cover the messages no click produces:
-`/auth/session`'s answer and the app's `LostSession`.
+`/auth/session`'s answer, and `loseSession` for the app's `401`s.
 
 Cases: nothing shows until the session is known; a session shows the
 email and Sign out, and emits `SignedIn`; none shows the form, and emits

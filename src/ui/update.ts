@@ -30,6 +30,11 @@ const signedOut = (model: Model, notice: Option.Option<string> = model.notice): 
   }
 }
 
+/**
+ * For the app, when one of its own calls gets a 401: the session is gone, so the form shows, and the app hears
+ * `SignedOut` once however many 401s follow. Fold it with `Update.foldChildStep`.
+ */
+export const loseSession = (model: Model): UpdateReturn => signedOut(model)
 
 const sendSignInLink = (model: Model): UpdateReturn => {
   const email = model.emailInput.trim()
@@ -46,7 +51,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     SucceededFetchSession: ({ email }) => signedIn(model, email),
     FailedFetchSession: ({ error }) => signedOut(model, Option.some(error)),
-    LostSession: () => signedOut(model),
+    LostSession: () => loseSession(model),
     ChangedEmail: ({ value }) => ({ model: modifyFields(model, { emailInput: () => value }) }),
     SubmittedSignIn: () => sendSignInLink(model),
     SentSignInLink: ({ email }) => ({ model: modifyFields(model, { isSending: () => false, sentTo: () => Option.some(email) }) }),

@@ -10,7 +10,7 @@ import * as Story from "foldkit/story"
 import { message, model, story } from "foldkit/story"
 import { modifyFields } from "foldkit/struct"
 import { fromString, type Url } from "foldkit/url"
-import { accountView, FetchSession, formView, init, Message, type Model, OutMessage, reflectUrl, SendSignInLink, SignOut, Status, update } from "../src/ui/index.ts"
+import { accountView, FetchSession, formView, init, loseSession, Message, type Model, OutMessage, reflectUrl, SendSignInLink, SignOut, Status, update } from "../src/ui/index.ts"
 
 beforeAll(() => GlobalRegistrator.register())
 afterAll(() => GlobalRegistrator.unregister())
@@ -176,13 +176,9 @@ describe("signing out", () => {
   })
 
   test("a 401 on one of the app's own calls signs out too, and the app hears it once", () => {
-    story(
-      update,
-      Story.given(signedIn("me@x.com")),
-      message(Message.LostSession()),
-      Story.expectOutMessage(OutMessage.SignedOut()),
-      message(Message.LostSession()),
-      Story.expectNoOutMessage(),
-    )
+    const first = loseSession(signedIn("me@x.com"))
+    expectValue(first.model.status._tag).toBe("SignedOut")
+    expectValue(first.outMessage).toEqual(OutMessage.SignedOut())
+    expectValue(loseSession(first.model).outMessage).toBeUndefined()
   })
 })
