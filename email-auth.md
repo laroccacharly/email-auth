@@ -123,7 +123,7 @@ the rest is the app.
 #### Step 1: install
 
 ```sh
-bun add github:laroccacharly/email-auth#v0.1.0
+bun add github:laroccacharly/email-auth#v0.1.1
 ```
 
 `effect` must already be in the app; the library uses the app's copy.
@@ -221,7 +221,11 @@ export const emailAuth = EmailAuth.layer(AppApi, {
 
 `EmailAuth.layer` takes the app's `HttpApi` (a compile error if it lacks
 `EmailAuthGroup`) and provides the `auth` handlers and the `Session`
-middleware. Provide it after the app's own handlers, so they get `Session`:
+middleware. Middleware the app adds to its whole API with
+`HttpApi.middleware`, after `.add(EmailAuthGroup)`, wraps the `auth`
+endpoints too (a rate limit, say), so the layer then needs that
+middleware provided as well. Provide it after the app's own handlers, so
+they get `Session`:
 
 ```ts
 const routes = HttpApiBuilder.layer(AppApi).pipe(
@@ -277,7 +281,7 @@ An Effect UI can call the same endpoints through
 ### 6. Package
 
 - Repo `github:laroccacharly/email-auth`, used as
-  `bun add github:laroccacharly/email-auth#v0.1.0`.
+  `bun add github:laroccacharly/email-auth#v0.1.1`.
 - `effect` as a peer dependency (`^4.1.1`, the first with `effect/jose`),
   pinned in dev dependencies.
   No other runtime dependency.

@@ -1,6 +1,6 @@
 import { Clock, Config, type Duration, Effect, Layer, Redacted, Schema } from "effect"
-import { HttpRouter, HttpServer } from "effect/http"
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware } from "effect/http-api"
 import { TestClock } from "effect/testing"
 import { EmailAuth, EmailAuthGroup, KnownEmail, type Mail, Mailer, MailerError, Session, SignedInEmail } from "../src/index.ts"
 
@@ -8,7 +8,12 @@ class MeGroup extends HttpApiGroup.make("me")
   .add(HttpApiEndpoint.get("whoami", "/api/me", { success: Schema.Struct({ email: Schema.String }) }))
   .middleware(Session) {}
 
-class TestApi extends HttpApi.make("test").add(EmailAuthGroup).add(MeGroup) {}
+/** App-wide middleware, as an app's rate limit would be: it wraps the `auth` endpoints too, and marks every response. */
+class Stamp extends HttpApiMiddleware.Service<Stamp>()("test/Stamp") {}
+
+const stamp = Layer.succeed(Stamp, Stamp.of((httpEffect) => Effect.map(httpEffect, HttpServerResponse.setHeader("x-stamp", "app"))))
+
+class TestApi extends HttpApi.make("test").add(EmailAuthGroup).add(MeGroup).middleware(Stamp) {}
 
 const meHandlers = HttpApiBuilder.group(TestApi, "me", (handlers) =>
   handlers.handle("whoami", () =>
@@ -41,11 +46,12 @@ export const makeTestApp = async (options: TestAppOptions) => {
     secret: Config.succeed(Redacted.make("a-test-secret-that-is-at-least-32-bytes-long")),
     baseUrl: Config.succeed(baseUrl),
     appName: "Notes",
-  }).pipe(Layer.provide([knownEmail, mailer]))
+  }).pipe(Layer.provide([knownEmail, mailer, stamp]))
 
   const routes = HttpApiBuilder.layer(TestApi).pipe(
     Layer.provide(meHandlers),
     Layer.provide(emailAuth),
+    Layer.provide(stamp),
     Layer.provide(HttpServer.layerServices),
     Layer.provide(Layer.succeed(Clock.Clock, clock)),
   )

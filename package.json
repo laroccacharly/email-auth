@@ -1,6 +1,6 @@
 {
   "name": "email-auth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Stateless email sign-in for Effect HttpApi servers",

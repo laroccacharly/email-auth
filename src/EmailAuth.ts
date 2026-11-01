@@ -1,6 +1,6 @@
 import { Config, DateTime, Duration, Effect, Layer, Redacted } from "effect"
 import { HttpServerResponse } from "effect/http"
-import { HttpApi, HttpApiBuilder, type HttpApiGroup } from "effect/http-api"
+import { HttpApi, HttpApiBuilder, type HttpApiEndpoint, type HttpApiGroup } from "effect/http-api"
 import type { JoseError } from "effect/jose"
 import { EmailAuthGroup } from "./EmailAuthGroup.ts"
 import { KnownEmail } from "./KnownEmail.ts"
@@ -106,20 +106,36 @@ const sessionMiddleware = Layer.effect(
   }),
 )
 
-/** The `auth` handlers and the `Session` middleware, for an app whose `HttpApi` includes `EmailAuthGroup`. */
+/** The app's `auth` group: `EmailAuthGroup`, with any middleware the app added to its whole `HttpApi`. */
+type AuthGroupOf<Groups> = Extract<Groups, { readonly identifier: "auth" }>
+
+/** The middleware the app put on the `auth` endpoints, and what it needs, which their handlers then need too. */
+type AppMiddlewareOf<Groups> = Exclude<
+  | HttpApiEndpoint.Middleware<HttpApiGroup.Endpoints<AuthGroupOf<Groups>>>
+  | HttpApiEndpoint.MiddlewareServices<HttpApiGroup.Endpoints<AuthGroupOf<Groups>>>,
+  Session
+>
+
+/** A compile error, naming the problem, for an `HttpApi` without `EmailAuthGroup`. */
+type RequireAuthGroup<Groups> = [AuthGroupOf<Groups>] extends [never] ? { readonly "the HttpApi must add EmailAuthGroup": never } : object
+
+/**
+ * The `auth` handlers and the `Session` middleware, for an app whose `HttpApi` includes `EmailAuthGroup`. Middleware the
+ * app adds to its whole API (`HttpApi.middleware`) runs on the `auth` endpoints too, so the layer needs it provided.
+ */
 export const layer = <ApiId extends string, Groups extends HttpApiGroup.Constraint>(
-  api: HttpApi.HttpApi<ApiId, Groups | typeof EmailAuthGroup>,
+  api: HttpApi.HttpApi<ApiId, Groups> & RequireAuthGroup<Groups>,
   options: EmailAuthOptions,
 ): Layer.Layer<
   HttpApiGroup.Service<ApiId, "auth"> | Session,
   Config.ConfigError | JoseError.JoseError,
-  KnownEmail | Mailer
+  KnownEmail | Mailer | AppMiddlewareOf<Groups>
 > => {
   const resolved = { ...options, linkTtl: options.linkTtl ?? "15 minutes", sessionTtl: options.sessionTtl ?? "30 days" }
   const handlers = authHandlers(api as never as typeof EmailAuthApi, resolved) as Layer.Layer<
     HttpApiGroup.Service<ApiId, "auth">,
     Config.ConfigError,
-    KnownEmail | Mailer | Tokens | Session
+    KnownEmail | Mailer | Tokens | Session | AppMiddlewareOf<Groups>
   >
   return handlers.pipe(Layer.provideMerge(sessionMiddleware), Layer.provide(Tokens.layer(resolved)))
 }

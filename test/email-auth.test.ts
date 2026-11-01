@@ -44,6 +44,12 @@ describe("sign in", () => {
     expect(setCookie).toContain("Max-Age=2592000")
   })
 
+  test("the app's API-wide middleware runs on the auth endpoints", async () => {
+    app = await makeTestApp({ knownEmails: [] })
+    const login = await app.request("/auth/login", postJson({ email: "me@example.com" }))
+    expect(login.headers.get("x-stamp")).toBe("app")
+  })
+
   test("redirect defaults to /", async () => {
     app = await makeTestApp({ knownEmails: ["me@example.com"] })
     expect((await signIn("me@example.com")).headers.get("location")).toBe("/")

@@ -12,5 +12,5 @@ Nothing is stored but one secret.
 ## Installation
 
 ```sh
-bun add github:laroccacharly/email-auth#v0.1.0
+bun add github:laroccacharly/email-auth#v0.1.1
 ```
