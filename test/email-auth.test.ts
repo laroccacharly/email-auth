@@ -39,12 +39,19 @@ describe("sign in", () => {
   test("the session cookie is HttpOnly, Secure, SameSite=Lax, on / for 30 days", async () => {
     app = await makeTestApp()
     const setCookie = (await signIn("me@example.com")).headers.get("set-cookie") ?? ""
-    expect(setCookie).toMatch(/^session=[\w-]+\.[\w-]+\.[\w-]+;/)
+    expect(setCookie).toMatch(/^__Host-session=[\w-]+\.[\w-]+\.[\w-]+;/)
     expect(setCookie).toContain("HttpOnly")
     expect(setCookie).toContain("Secure")
     expect(setCookie).toContain("SameSite=Lax")
     expect(setCookie).toContain("Path=/")
     expect(setCookie).toContain("Max-Age=2592000")
+    expect(setCookie).not.toContain("Domain")
+  })
+
+  test("a session cookie from another app, sent first, doesn't hide the session", async () => {
+    app = await makeTestApp()
+    const cookie = sessionCookieOf(await signIn("me@example.com"))
+    expect((await whoami(`session=another-app; ${cookie}`)).status).toBe(200)
   })
 
   test("the app's API-wide middleware runs on the auth endpoints", async () => {
@@ -174,12 +181,12 @@ describe("expiry and tampering", () => {
     app = await makeTestApp()
     await app.request("/auth/login", postJson({ email: "me@example.com" }))
     const linkToken = new URL(linkPath(app.sent[0]!), "https://x").searchParams.get("token")
-    expect((await whoami(`session=${linkToken}`)).status).toBe(401)
+    expect((await whoami(`__Host-session=${linkToken}`)).status).toBe(401)
   })
 
   test("a session token used as a link redirects to /?auth=expired", async () => {
     app = await makeTestApp()
-    const sessionToken = sessionCookieOf(await signIn("me@example.com")).replace("session=", "")
+    const sessionToken = sessionCookieOf(await signIn("me@example.com")).replace("__Host-session=", "")
     const callback = await app.request(`/auth/callback?token=${sessionToken}`)
     expect(callback.headers.get("location")).toBe("/?auth=expired")
   })
@@ -239,7 +246,7 @@ describe("session and logout", () => {
     const logout = await app.request("/auth/logout", { method: "POST", headers: { cookie } })
     expect(logout.status).toBe(204)
     const setCookie = logout.headers.get("set-cookie") ?? ""
-    expect(setCookie).toMatch(/^session=;/)
+    expect(setCookie).toMatch(/^__Host-session=;/)
     expect(setCookie).toMatch(/Max-Age=0|Expires=Thu, 01 Jan 1970/)
   })
 })

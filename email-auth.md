@@ -24,7 +24,7 @@ browser                     app (with email-auth)              mailbox
    | GET /auth/callback?token=… ->|                                  |
    |                            | verify link token                |
    |<-- 303 to `redirect`,      |                                  |
-   |    Set-Cookie: session=…   |                                  |
+   |    Set-Cookie: __Host-…    |                                  |
    |                                                               |
    | GET /api/anything, Cookie ->| verify session cookie,          |
    |                            | provide the email to the handler |
@@ -42,7 +42,7 @@ never be used as the other:
 | Token   | Carried in                 | `typ`                | Claims                     | Lifetime (default) |
 | ------- | -------------------------- | -------------------- | -------------------------- | ------------------ |
 | Link    | The email's URL, `?token=` | `email-auth-link`    | `{ email, redirect, exp }` | 15 minutes         |
-| Session | The `session` cookie       | `email-auth-session` | `{ email, exp }`           | 30 days            |
+| Session | The `__Host-session` cookie | `email-auth-session` | `{ email, exp }`           | 30 days            |
 
 - Signed and verified with `Jwt` from `effect/jose`, on `Mac` from
   `effect/crypto` over Web Crypto, so it runs in Workers, Bun and browsers
@@ -82,8 +82,14 @@ never be used as the other:
 ### 3. The cookie
 
 ```
-Set-Cookie: session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000
+Set-Cookie: __Host-session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000
 ```
+
+- `__Host-`: browsers only keep a cookie with this prefix if it is
+  `Secure`, on `Path=/` and has no `Domain`. So no other app, even on a
+  parent domain (a `session` cookie for `.example.com`), and no longer
+  path can put a cookie of the same name ahead of it: a plain `session`
+  name would read the first one sent and answer `401`.
 
 - `HttpOnly`: page scripts can't read it, so an XSS bug can't steal the
   session. The browser still sends it; nothing in the UI needs to touch it.
@@ -138,8 +144,8 @@ The library exports:
 
 - `EmailAuthGroup`: the `auth` group from section 4.
 - `SessionInfo`: the schema of `GET /auth/session`'s body.
-- `Session`: an `HttpApiMiddleware` reading the `session` cookie
-  (`HttpApiSecurity.apiKey({ in: "cookie", key: "session" })`). A group
+- `Session`: an `HttpApiMiddleware` reading the `__Host-session` cookie
+  (`HttpApiSecurity.apiKey({ in: "cookie", key: "__Host-session" })`). A group
   that adds it answers `401` without a valid cookie.
 - `SignedInEmail`: a `Context.Service` holding the signed-in email, which
   `Session` provides to the handlers of the groups it protects.
@@ -355,7 +361,10 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
 The app's tests needn't send or click a link: signing in is this
 library's to test (section 7). `sessionCookie({ secret, email })` signs the
 cookie a link would have set, with the app's secret, and returns its
-`{ name, value }`. A browser test adds it before opening the app:
+`{ name, value, path, secure }`. A browser test adds it, with the app's
+host as its `domain`, before opening the app (a `url` would do for a
+plain cookie, but Playwright turns `secure` off for an `http://` url, and
+a `__Host-` cookie needs it):
 
 ```ts
 import { Effect, Redacted } from "effect"
@@ -363,7 +372,7 @@ import { sessionCookie } from "email-auth/testing"
 
 // The secret the app runs with in tests, e.g. its dev default.
 const cookie = await Effect.runPromise(sessionCookie({ secret: Redacted.make(devSecret), email: "me@x.com" }))
-await context.addCookies([{ ...cookie, url: "http://localhost:3401" }])
+await context.addCookies([{ ...cookie, domain: "localhost" }])
 ```
 
 or sends `Cookie: ${name}=${value}` with a plain request. The server
@@ -411,7 +420,8 @@ opens the protected route; an unknown email gets the same `204` and no
 mail; an expired link redirects to `/?auth=expired`; an expired, tampered
 or link-as-session token gets `401`; an absolute `redirect` gets `400`;
 logout clears the cookie; the cookie has `HttpOnly`, `Secure`,
-`SameSite=Lax`; a cookie from `email-auth/testing` opens the protected
+`SameSite=Lax` and no `Domain`; a `session` cookie from another app,
+sent first, doesn't hide it; a cookie from `email-auth/testing` opens the protected
 route as the normalized email, and gets `401` signed with another secret.
 
 **The UI**, without a browser (`bun test`, `test/ui.test.ts`): Foldkit
@@ -434,7 +444,8 @@ call to `/api/me`) on every other path, and the mail sent at
 `/test/mail?to=`, which the tests read like an inbox.
 
 Cases: the emailed link signs in and opens the protected route, with a
-cookie page scripts can't read; the session survives a reload; a link
+cookie page scripts can't read; a `session` cookie another app left,
+sent ahead of it, doesn't stop it; the session survives a reload; a link
 asked for on a deep page comes back to it; an email that may not sign in
 sees the same answer and gets no mail; a bad link shows the form with a
 notice, and a link asked there comes back without it; a cookie from

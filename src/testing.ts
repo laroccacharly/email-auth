@@ -11,14 +11,19 @@ export interface SessionCookieOptions {
   readonly sessionTtl?: Duration.Input
 }
 
-/** A cookie's name and value, as a browser or `Cookie` header takes them. */
+/**
+ * A cookie's name and value, as a `Cookie` header takes them, with the `path` and `secure` its `__Host-` name needs: a
+ * browser test adds the `domain` (`localhost`), since a browser turns `secure` off for an `http://` url.
+ */
 export interface SessionCookie {
   readonly name: string
   readonly value: string
+  readonly path: "/"
+  readonly secure: true
 }
 
 /**
- * The `session` cookie a sign-in link would set for `email`, signed with the app's secret, so an app's tests start
+ * The `__Host-session` cookie a sign-in link would set for `email`, signed with the app's secret, so an app's tests start
  * signed in without sending or clicking a link. Whoever holds the secret could sign it anyway; nothing is opened up.
  */
 export const sessionCookie = Effect.fnUntraced(function* (
@@ -32,5 +37,5 @@ export const sessionCookie = Effect.fnUntraced(function* (
       sessionTtl: options.sessionTtl ?? "30 days",
     })),
   )
-  return { name: sessionCookieSecurity.key, value }
+  return { name: sessionCookieSecurity.key, value, path: "/", secure: true }
 })

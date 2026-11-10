@@ -34,8 +34,17 @@ test("the emailed link signs in, opens the protected route, and leaves a cookie 
   await expect(page.getByText(`The protected route says: ${email}`)).toBeVisible()
   await expect(emailField(page)).toBeHidden()
   const [cookie] = await page.context().cookies()
-  expect(cookie).toMatchObject({ name: "session", httpOnly: true, secure: true, sameSite: "Lax" })
+  expect(cookie).toMatchObject({ name: "__Host-session", httpOnly: true, secure: true, sameSite: "Lax" })
   expect(await page.evaluate(() => document.cookie)).toBe("")
+})
+
+test("a session cookie another app left, sent ahead of ours, doesn't stop the link signing in", async ({ page }) => {
+  // A longer path is sent first: under the same name, its value is the one the server would read.
+  await page.context().addCookies([{ name: "session", value: "another-app", domain: new URL(origin).hostname, path: "/auth" }])
+  const email = uniqueEmail("stray")
+  await page.goto("/")
+  await signIn(page, email)
+  await expect(page.getByText(`The protected route says: ${email}`)).toBeVisible()
 })
 
 test("the session survives a reload", async ({ page }) => {
@@ -72,7 +81,7 @@ test("a bad link shows the form with a notice, and a link asked there comes back
 test("a session cookie made by email-auth/testing opens the app signed in, with no mail", async ({ page }) => {
   const email = uniqueEmail("made")
   const cookie = await Effect.runPromise(sessionCookie({ secret, email }))
-  await page.context().addCookies([{ ...cookie, url: origin }])
+  await page.context().addCookies([{ ...cookie, domain: new URL(origin).hostname }])
   await page.goto("/")
   await expect(page.getByText(`The protected route says: ${email}`)).toBeVisible()
   expect(await hasMail(email)).toBe(false)

@@ -1,6 +1,6 @@
 {
   "name": "email-auth",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Stateless email sign-in for Effect HttpApi servers, with a Foldkit sign-in UI",
