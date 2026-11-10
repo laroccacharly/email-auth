@@ -350,6 +350,28 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
 - **What a signed-in email may do.** The library only says "this request
   comes from someone who reads `me@x.com`". The app maps that to its data.
 
+#### Testing the app signed in, with `email-auth/testing`
+
+The app's tests needn't send or click a link: signing in is this
+library's to test (section 7). `sessionCookie({ secret, email })` signs the
+cookie a link would have set, with the app's secret, and returns its
+`{ name, value }`. A browser test adds it before opening the app:
+
+```ts
+import { Effect, Redacted } from "effect"
+import { sessionCookie } from "email-auth/testing"
+
+// The secret the app runs with in tests, e.g. its dev default.
+const cookie = await Effect.runPromise(sessionCookie({ secret: Redacted.make(devSecret), email: "me@x.com" }))
+await context.addCookies([{ ...cookie, url: "http://localhost:3401" }])
+```
+
+or sends `Cookie: ${name}=${value}` with a plain request. The server
+verifies it like any other session: it answers `401` if the secrets
+differ. `KnownEmail` isn't asked, as it isn't for any session, and no
+mail is sent. It opens nothing up: whoever holds the secret can sign
+sessions anyway, and a deployed app's secret never reaches its tests.
+
 ### 6. Package
 
 - Repo `github:laroccacharly/email-auth`, used as
@@ -358,6 +380,8 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
   (`^0.170.0`, for `email-auth/ui`) as peer dependencies, so the app's
   single copy of each is used, pinned in dev dependencies. The server
   half (`email-auth`) never imports Foldkit. No other runtime dependency.
+- Three entry points: `email-auth` (the server), `email-auth/ui` (the
+  Foldkit UI), `email-auth/testing` (an app's tests).
 - Source is TypeScript, imported directly (Bun and the Workers bundler
   both read `.ts`), so there's no build step.
 - `bun run lint` (oxlint with type checking, and Foldkit's recommended
@@ -368,7 +392,7 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
 
 Through the public API only, all of it in a few seconds. The library owns
 everything about signing in, so an app only tests its own rules (who may
-sign in, what an email sees) and one real sign-in for its wiring.
+sign in, what an email sees), signed in with `email-auth/testing`.
 
 **The server**, in memory (`bun test`, `test/email-auth.test.ts`):
 
@@ -387,7 +411,8 @@ opens the protected route; an unknown email gets the same `204` and no
 mail; an expired link redirects to `/?auth=expired`; an expired, tampered
 or link-as-session token gets `401`; an absolute `redirect` gets `400`;
 logout clears the cookie; the cookie has `HttpOnly`, `Secure`,
-`SameSite=Lax`.
+`SameSite=Lax`; a cookie from `email-auth/testing` opens the protected
+route as the normalized email, and gets `401` signed with another secret.
 
 **The UI**, without a browser (`bun test`, `test/ui.test.ts`): Foldkit
 Scene tests render both views into a happy-dom DOM, type and click
@@ -412,8 +437,9 @@ Cases: the emailed link signs in and opens the protected route, with a
 cookie page scripts can't read; the session survives a reload; a link
 asked for on a deep page comes back to it; an email that may not sign in
 sees the same answer and gets no mail; a bad link shows the form with a
-notice, and a link asked there comes back without it; signing out shows
-the form, even after a reload.
+notice, and a link asked there comes back without it; a cookie from
+`email-auth/testing` opens the app signed in, with no mail; signing out
+shows the form, even after a reload.
 
 ### 8. In bench
 

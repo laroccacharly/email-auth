@@ -1,12 +1,13 @@
 {
   "name": "email-auth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Stateless email sign-in for Effect HttpApi servers, with a Foldkit sign-in UI",
   "exports": {
     ".": "./src/index.ts",
-    "./ui": "./src/ui/index.ts"
+    "./ui": "./src/ui/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "test": "bun test",

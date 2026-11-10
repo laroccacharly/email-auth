@@ -23,6 +23,8 @@ const meHandlers = HttpApiBuilder.group(TestApi, "me", (handlers) =>
 
 export const baseUrl = "https://notes.example"
 
+export const secret = Redacted.make("a-test-secret-that-is-at-least-32-bytes-long")
+
 interface AppOptions {
   readonly baseUrl: string
   readonly knownEmail: Layer.Layer<KnownEmail, Schema.SchemaError>
@@ -35,7 +37,7 @@ interface AppOptions {
 export const makeAppHandler = (options: AppOptions) => {
   const mailer = Layer.succeed(Mailer, { send: options.send })
   const emailAuth = EmailAuth.layer(TestApi, {
-    secret: Config.succeed(Redacted.make("a-test-secret-that-is-at-least-32-bytes-long")),
+    secret: Config.succeed(secret),
     baseUrl: Config.succeed(options.baseUrl),
     appName: "Notes",
   }).pipe(Layer.provide([options.knownEmail, mailer, stamp]))

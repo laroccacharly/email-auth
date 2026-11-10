@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect, Exit, Layer, type Schema } from "effect"
+import { Effect, Exit, Layer, Redacted, type Schema } from "effect"
 import { KnownEmail } from "../src/index.ts"
-import { linkPath, makeTestApp, postJson, sessionCookieOf } from "./app.ts"
+import { sessionCookie } from "../src/testing.ts"
+import { linkPath, makeTestApp, postJson, secret, sessionCookieOf } from "./app.ts"
 
 let app: Awaited<ReturnType<typeof makeTestApp>>
 
@@ -191,6 +192,24 @@ describe("expiry and tampering", () => {
   test("no cookie is a 401", async () => {
     app = await makeTestApp()
     expect((await app.request("/api/me")).status).toBe(401)
+  })
+})
+
+describe("a session cookie made by email-auth/testing", () => {
+  test("opens the protected route without a link, as the normalized email", async () => {
+    app = await makeTestApp()
+    const { name, value } = await Effect.runPromise(sessionCookie({ secret, email: " Me@Example.com " }))
+    const me = await whoami(`${name}=${value}`)
+    expect(me.status).toBe(200)
+    expect(await me.json()).toEqual({ email: "me@example.com" })
+    expect(app.sent).toHaveLength(0)
+  })
+
+  test("signed with another secret, it gets 401", async () => {
+    app = await makeTestApp()
+    const other = Redacted.make("another-secret-that-is-at-least-32-bytes-long")
+    const { name, value } = await Effect.runPromise(sessionCookie({ secret: other, email: "me@example.com" }))
+    expect((await whoami(`${name}=${value}`)).status).toBe(401)
   })
 })
 

@@ -1,7 +1,11 @@
 // Signing in and out by email in a real browser: the demo app, its sign-in UI and the test app's endpoints, on one origin.
 
 import { expect, type Page, test } from "@playwright/test"
+import { Effect } from "effect"
+import { sessionCookie } from "../../src/testing.ts"
+import { secret } from "../app.ts"
 import { hasMail, signInLink, uniqueEmail } from "./inbox.ts"
+import { origin } from "./server.ts"
 
 const emailField = (page: Page) => page.getByLabel("Email")
 const sendButton = (page: Page) => page.getByRole("button", { name: "Email me a sign-in link" })
@@ -63,6 +67,15 @@ test("a bad link shows the form with a notice, and a link asked there comes back
   await signIn(page, uniqueEmail("expired"))
   await expect(page).toHaveURL("/")
   await expect(page.getByRole("alert")).toBeHidden()
+})
+
+test("a session cookie made by email-auth/testing opens the app signed in, with no mail", async ({ page }) => {
+  const email = uniqueEmail("made")
+  const cookie = await Effect.runPromise(sessionCookie({ secret, email }))
+  await page.context().addCookies([{ ...cookie, url: origin }])
+  await page.goto("/")
+  await expect(page.getByText(`The protected route says: ${email}`)).toBeVisible()
+  expect(await hasMail(email)).toBe(false)
 })
 
 test("signing out shows the form, even after a reload", async ({ page }) => {
