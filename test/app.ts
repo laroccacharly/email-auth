@@ -25,7 +25,7 @@ export const baseUrl = "https://notes.example"
 
 interface AppOptions {
   readonly baseUrl: string
-  readonly isKnownEmail: (email: string) => boolean
+  readonly knownEmail: Layer.Layer<KnownEmail, Schema.SchemaError>
   readonly send: (mail: Mail) => Effect.Effect<void, MailerError>
   /** A test clock, or `Layer.empty` for the real one. */
   readonly clock: Layer.Layer<never>
@@ -33,13 +33,12 @@ interface AppOptions {
 
 /** The test app's routes as a fetch handler: the `auth` endpoints and `/api/me`, behind the `Stamp` middleware. */
 export const makeAppHandler = (options: AppOptions) => {
-  const knownEmail = Layer.succeed(KnownEmail, { check: (email) => Effect.succeed(options.isKnownEmail(email)) })
   const mailer = Layer.succeed(Mailer, { send: options.send })
   const emailAuth = EmailAuth.layer(TestApi, {
     secret: Config.succeed(Redacted.make("a-test-secret-that-is-at-least-32-bytes-long")),
     baseUrl: Config.succeed(options.baseUrl),
     appName: "Notes",
-  }).pipe(Layer.provide([knownEmail, mailer, stamp]))
+  }).pipe(Layer.provide([options.knownEmail, mailer, stamp]))
 
   const routes = HttpApiBuilder.layer(TestApi).pipe(
     Layer.provide(meHandlers),
@@ -52,18 +51,19 @@ export const makeAppHandler = (options: AppOptions) => {
 }
 
 interface TestAppOptions {
-  readonly knownEmails: ReadonlyArray<string>
+  /** Who may sign in: only `me@example.com` unless the test says otherwise. */
+  readonly knownEmail?: Layer.Layer<KnownEmail, Schema.SchemaError>
   readonly mailerFails?: boolean
 }
 
 /** The test app as a fetch handler, with the mail it sent and a clock the test moves. */
-export const makeTestApp = async (options: TestAppOptions) => {
+export const makeTestApp = async (options: TestAppOptions = {}) => {
   const sent: Array<Mail> = []
   const clock = await Effect.runPromise(Effect.scoped(TestClock.make()))
   const { handler, dispose } = makeAppHandler({
     baseUrl,
     clock: Layer.succeed(Clock.Clock, clock),
-    isKnownEmail: (email) => options.knownEmails.includes(email),
+    knownEmail: options.knownEmail ?? KnownEmail.allowList(["me@example.com"]),
     send: (mail) => {
       if (options.mailerFails) return Effect.fail(new MailerError({ cause: "provider down" }))
       return Effect.sync(() => void sent.push(mail))

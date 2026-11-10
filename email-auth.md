@@ -65,6 +65,9 @@ never be used as the other:
   consumed, so they can't break the link either.
 - A session can't be revoked on its own. Changing the secret signs
   everyone out.
+- `KnownEmail` is asked only when a link is requested. An email taken
+  off the list keeps its session until the cookie expires (or the
+  secret changes).
 - Whoever gets a link before it expires, or a cookie, is signed in as
   that email.
 - Nothing ties a link to the browser that asked for it, so you can ask on
@@ -183,7 +186,17 @@ does.
 #### Step 4: provide the two services and the options
 
 The library needs to know who may sign in and how to send mail. The app
-provides both as Layers:
+provides both as Layers. For who may sign in, it picks one explicitly;
+there is no default:
+
+- `KnownEmail.anyone`: every email.
+- `KnownEmail.allowList(["me@x.com", "you@y.com"])`: only these. The list
+  can't be empty (that is what `anyone` is for), and every entry must be
+  an email: the compiler checks literals (no spaces at all), and the
+  layer fails with a `SchemaError` when built for a list read at runtime.
+  Entries are lowercased, and runtime ones trimmed, like the email asked
+  for.
+- Its own `KnownEmail`, when the answer lives in its data, as below.
 
 ```ts
 // src/emailAuth.ts
@@ -367,7 +380,9 @@ sign in, what an email sees) and one real sign-in for its wiring.
 - A `TestClock`, provided as the app's `Clock`, moves time past `linkTtl`
   and `sessionTtl`.
 
-Cases: a known email gets a link, and clicking it sets a cookie that
+Cases: `anyone` sends every email a link; allow list entries are
+normalized; an empty allow list or a non-email entry doesn't compile and
+fails when built; a known email gets a link, and clicking it sets a cookie that
 opens the protected route; an unknown email gets the same `204` and no
 mail; an expired link redirects to `/?auth=expired`; an expired, tampered
 or link-as-session token gets `401`; an absolute `redirect` gets `400`;

@@ -2,7 +2,7 @@
 // it sent at `/test/mail?to=`, which the tests read like an inbox. Every email may sign in but `unknown@…` ones.
 
 import { Effect, Layer } from "effect"
-import type { Mail } from "../../src/index.ts"
+import { KnownEmail, type Mail } from "../../src/index.ts"
 import { makeAppHandler } from "../app.ts"
 import demo from "./demo/index.html"
 
@@ -14,7 +14,7 @@ const sent: Array<Mail> = []
 const app = makeAppHandler({
   baseUrl: origin,
   clock: Layer.empty,
-  isKnownEmail: (email) => !email.startsWith("unknown"),
+  knownEmail: Layer.succeed(KnownEmail, { check: (email) => Effect.succeed(!email.startsWith("unknown")) }),
   send: (mail) => Effect.sync(() => void sent.push(mail)),
 })
 
