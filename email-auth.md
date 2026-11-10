@@ -127,7 +127,7 @@ the rest is the app.
 #### Step 1: install
 
 ```sh
-bun add github:laroccacharly/email-auth#v0.2.1
+bun add github:laroccacharly/email-auth#<tag>
 ```
 
 `effect` must already be in the app; the library uses the app's copy.
@@ -353,7 +353,7 @@ h.submodel({ slotId: "account", view: SignIn.accountView, model: model.signIn, v
 ### 6. Package
 
 - Repo `github:laroccacharly/email-auth`, used as
-  `bun add github:laroccacharly/email-auth#v0.2.1`.
+  `bun add github:laroccacharly/email-auth#<tag>`.
 - `effect` (`^4.1.1`, the first with `effect/jose`) and `foldkit`
   (`^0.170.0`, for `email-auth/ui`) as peer dependencies, so the app's
   single copy of each is used, pinned in dev dependencies. The server

@@ -1,6 +1,6 @@
 {
   "name": "email-auth",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Stateless email sign-in for Effect HttpApi servers, with a Foldkit sign-in UI",
@@ -11,7 +11,8 @@
   "scripts": {
     "test": "bun test",
     "test:ui": "bun --bun playwright test",
-    "lint": "oxlint . && ts-lint-effect"
+    "lint": "oxlint . && ts-lint-effect",
+    "release": "git add -A && git commit -m v$npm_package_version && git tag v$npm_package_version && git push origin main v$npm_package_version"
   },
   "devDependencies": {
     "@effect/platform-browser": "4.1.1",
